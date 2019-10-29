@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 import { Stage, Layer, Rect, Shape } from 'react-konva'
-import { ShapeConfig, Shape as ShapeT } from 'konva/types/Shape';
 import { Context } from 'konva/types/Context';
 
 type InputProps = {
@@ -39,7 +38,7 @@ const Preview: React.FC<Settings> = ({ period, amplitude, phase, noise }) => {
     <Rect width={screenWidth} height={screenHeight}></Rect>
   </Layer>
 
-  function drawSine(context: Context, shape: ShapeT<ShapeConfig>) {
+  function drawSine(context: Context) {
 
     context.moveTo(0, screenHeight / period)
     context.beginPath()
@@ -55,9 +54,7 @@ const Preview: React.FC<Settings> = ({ period, amplitude, phase, noise }) => {
   }
 
   const wave = <Shape sceneFunc={(context, shape) => {
-    // context.beginPath()
-    drawSine(context, shape)
-    // context.closePath()
+    drawSine(context)
     context.fillStrokeShape(shape)
   }} stroke="#09d3ac" strokeWidth={1} />
 
