@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import { Stage, Layer, Rect, Shape } from 'react-konva'
 import { Context } from 'konva/types/Context';
+import axios from 'axios'
 
 type InputProps = {
   label: string,
@@ -11,7 +12,7 @@ type InputProps = {
 
 const Input: React.FC<InputProps> = ({ label, update, initial }) => {
   return (
-    <div>{label}: <input type="number" title={label} onChange={e => update(((e.target.value || 0) as any))} value={initial} /></div>
+    <div>{label}: <input type="number" title={label} onChange={e => update(((+e.target.value || 0)))} value={initial} /></div>
   )
 }
 
@@ -30,35 +31,62 @@ const useWindowWidth = () => {
   return get
 }
 
-const Preview: React.FC<Settings> = ({ period, amplitude, phase, noise }) => {
-  const screenWidth = Math.min(useWindowWidth(), 1000)
-  const screenHeight = 400
+function append<T>(maxLength: number, elems: Array<T>) {
+  return (buffer: Array<T>) => {
+    return buffer.concat(elems).slice(-maxLength)
+  }
+}
 
+type Sample = {
+  value: number
+}
+
+const useUpdateSettings: (s: Settings) => void = (settings) => {
+  useEffect(() => {
+    (async () => {
+      await axios.put("http://localhost:4000/params", settings)
+
+      console.log("updated params")
+    })()
+  }, [settings.amplitude, settings.noise.factor, settings.noise.rate, settings.period, settings.phase])
+
+}
+
+function drawSine(samples: Array<Sample>, context: Context, screen: Screen) {
+
+  const sampleCountToDraw = samples.length
+
+  console.log(`Drawing ${sampleCountToDraw} samples`)
+
+  for (let arg = 0; arg < sampleCountToDraw; arg++) {
+    const v = samples[arg]
+    if (arg === 0) {
+      context.moveTo(0, v)
+      context.beginPath()
+    }
+
+    context.lineTo(arg, -v.value + screen.height / 2)
+  }
+}
+
+type Screen = {
+  height: number,
+  width: number
+}
+
+type PreviewState = { samples: Array<Sample>, screen: Screen }
+
+const Preview: React.FC<PreviewState> = ({ samples, screen }) => {
   const background = <Layer>
-    <Rect width={screenWidth} height={screenHeight}></Rect>
+    <Rect width={screen.width} height={screen.height}></Rect>
   </Layer>
 
-  function drawSine(context: Context) {
-
-    context.moveTo(0, screenHeight / period)
-    context.beginPath()
-
-    for (let arg = 0; arg < (screenWidth || 0); arg++) {
-      const base = Math.sin((arg / period) - phase) * amplitude
-      const noiseValue = arg % noise.rate < 1 ? Math.random() * noise.factor - noise.factor / 2 : 0
-
-      const v = base + noiseValue * base / screenHeight
-
-      context.lineTo(arg, -v + screenHeight / 2)
-    }
-  }
-
   const wave = <Shape sceneFunc={(context, shape) => {
-    drawSine(context)
+    drawSine(samples, context, screen)
     context.fillStrokeShape(shape)
   }} stroke="#09d3ac" strokeWidth={1} />
 
-  return <Stage width={screenWidth} height={screenHeight} >
+  return <Stage width={screen.width} height={screen.height} >
     {background}
     <Layer>{wave}</Layer>
   </Stage >
@@ -67,6 +95,13 @@ const Preview: React.FC<Settings> = ({ period, amplitude, phase, noise }) => {
 type Noise = { factor: number, rate: number }
 
 const Comp: React.FC = () => {
+  const screen: Screen = {
+    width: Math.min(useWindowWidth(), 1000),
+    height: 400
+  }
+
+  const [samples, setSamples] = useState<Array<Sample>>([])
+
   const [period, setPeriod] = useState(10)
   const [amplitude, setAmplitude] = useState(50)
   const [phase, setPhase] = useState(0)
@@ -75,9 +110,26 @@ const Comp: React.FC = () => {
 
   const noise: Noise = { factor: noiseFactor, rate: noiseRate }
 
+  const settings: Settings = { period, amplitude, phase, noise }
+
+  useUpdateSettings(settings)
+
+  useEffect(() => {
+    const ws = new WebSocket("ws://localhost:4000/samples")
+
+    ws.onmessage = ev => {
+      const decoded = JSON.parse(ev.data) as Array<number>
+      const samples = decoded.map(s => ({ value: s }))
+
+      setSamples(append(screen.width, samples))
+    }
+
+    return () => ws.close()
+  }, [screen.width])
+
   return (
     <div>
-      <Preview {...{ period, amplitude, phase, noise }}></Preview>
+      <Preview samples={samples} screen={screen} />
       <Input label="Period" update={setPeriod} initial={period}></Input>
       <Input label="Amplitude" update={setAmplitude} initial={amplitude}></Input>
       <Input label="Phase" update={setPhase} initial={phase}></Input>
